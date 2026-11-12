@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mappatrakka"
+version = "0.1.0"
+description = "Turn a Strava bulk export into a glowing heatmap of the routes you ride and run most."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.24",
+    "Pillow>=10.0",
+    "fitdecode>=0.10",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+mappatrakka = "mappatrakka.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mappatrakka*"]
+
+[tool.setuptools.package-data]
+mappatrakka = ["site_template/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

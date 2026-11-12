@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# generated stuff
+output/
+.mappatrakka-cache/
+demo_export/
+
+# never commit personal data
+export/
+strava_export*/
+config.toml
