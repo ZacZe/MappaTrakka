@@ -179,19 +179,3 @@ def line_length_m(line: np.ndarray) -> float:
     if len(line) < 2:
         return 0.0
     return float(haversine(line[:-1, 0], line[:-1, 1], line[1:, 0], line[1:, 1]).sum())
-
-
-def resample(line: np.ndarray, spacing_m: float) -> np.ndarray:
-    """Points spaced evenly along a line, so each sample stands for the same
-    distance whatever the device's recording interval was."""
-    if len(line) < 2:
-        return line.copy()
-    step = haversine(line[:-1, 0], line[:-1, 1], line[1:, 0], line[1:, 1])
-    dist = np.concatenate(([0.0], np.cumsum(step)))
-    total = dist[-1]
-    if total <= 0:
-        return line[:1].copy()
-    targets = np.arange(0.0, total + 1e-9, spacing_m)
-    lat = np.interp(targets, dist, line[:, 0])
-    lon = np.interp(targets, dist, line[:, 1])
-    return np.column_stack((lat, lon))
