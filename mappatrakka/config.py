@@ -95,9 +95,10 @@ class RegionConfig:
     cluster_radius_km: float = 30.0
     # 1 = busiest area, 2 = second busiest, ...
     cluster_rank: int = 1
-    # Percent of route distance trimmed from each edge when sizing the map.
-    # Stops a single 200 km ride from zooming the map right out.
-    trim_percent: float = 0.5
+    # When sizing the map, ignore this percent of activities on each side - the
+    # ones that reach furthest out. Stops a single 200 km ride from zooming the
+    # map right out (it's still drawn where it crosses the map).
+    trim_percent: float = 2.0
     padding: float = 0.05
 
 

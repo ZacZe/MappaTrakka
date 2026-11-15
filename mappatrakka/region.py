@@ -3,8 +3,8 @@
 A plain bounding box of every point gets ruined by one holiday abroad. Instead
 each activity is reduced to an anchor (its median point), anchors are grouped
 by single-linkage clustering, and the group with the most activities wins. The
-map is sized from that group's routes, with the far tails trimmed off so a
-single epic ride doesn't zoom everything out.
+map is sized to fit that group's activities, minus the odd one that reaches
+much further than the rest, so a single epic ride doesn't zoom everything out.
 
 Routes from *any* activity that cross the chosen area are still drawn.
 """
@@ -35,8 +35,6 @@ class ActivitySummary:
     index: int
     anchor_lat: float
     anchor_lon: float
-    # Points every ~100 m along the route, as (N, 2) [lat, lon].
-    samples: np.ndarray
     length_m: float
     # Mercator bounding box of the cleaned route.
     bounds: Bounds
@@ -174,15 +172,22 @@ def find_clusters(summaries: list[ActivitySummary], radius_km: float) -> list[Cl
     return clusters
 
 
-def _bounds_from_samples(samples: np.ndarray, trim_percent: float) -> Bounds:
-    x, y = to_mercator(samples[:, 0], samples[:, 1])
-    if trim_percent > 0 and len(x) > 1:
-        lo, hi = trim_percent, 100 - trim_percent
-        x0, x1 = np.percentile(x, [lo, hi])
-        y0, y1 = np.percentile(y, [lo, hi])
-    else:
-        x0, x1, y0, y1 = x.min(), x.max(), y.min(), y.max()
-    return Bounds(float(x0), float(y0), float(x1), float(y1))
+def bounds_of(summaries: list[ActivitySummary], trim_percent: float = 0.0) -> Bounds:
+    """Box around a set of activities, ignoring the few that reach furthest.
+
+    On each side the `trim_percent` of activities that stick out furthest are
+    ignored. Trimming whole activities rather than a share of the route
+    distance means a road you've used many times is never cut off - it takes
+    one or two lone long rides to push an edge out, and those are what get
+    trimmed. Small exports (fewer than 100 / trim_percent activities) aren't
+    trimmed at all.
+    """
+    xmin = np.sort([s.bounds.xmin for s in summaries])
+    ymin = np.sort([s.bounds.ymin for s in summaries])
+    xmax = np.sort([s.bounds.xmax for s in summaries])[::-1]
+    ymax = np.sort([s.bounds.ymax for s in summaries])[::-1]
+    k = int(len(summaries) * trim_percent / 100)
+    return Bounds(float(xmin[k]), float(ymin[k]), float(xmax[k]), float(ymax[k]))
 
 
 def _finish(bounds: Bounds, aspect: float, padding: float) -> Bounds:
@@ -214,8 +219,7 @@ def choose_region(
         raise ValueError("no activities with GPS data to build a map from")
 
     if cfg.mode == "all":
-        samples = np.concatenate([s.samples for s in summaries])
-        b = _finish(_bounds_from_samples(samples, 0.0), aspect, cfg.padding)
+        b = _finish(bounds_of(summaries), aspect, cfg.padding)
         return RegionChoice(b, description="every activity")
 
     clusters = find_clusters(summaries, cfg.cluster_radius_km)
@@ -225,8 +229,7 @@ def choose_region(
         rank = 1
     chosen = clusters[rank - 1]
     members = set(chosen.members)
-    samples = np.concatenate([s.samples for s in summaries if s.index in members])
-    b = _finish(_bounds_from_samples(samples, cfg.trim_percent), aspect, cfg.padding)
+    b = _finish(bounds_of([s for s in summaries if s.index in members], cfg.trim_percent), aspect, cfg.padding)
 
     others = [c for c in clusters if c is not chosen]
     desc = (
