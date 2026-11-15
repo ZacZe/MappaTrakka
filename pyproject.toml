@@ -29,3 +29,4 @@ mappatrakka = ["site_template/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = [".", "tests"]
