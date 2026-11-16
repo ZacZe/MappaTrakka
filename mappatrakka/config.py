@@ -134,19 +134,10 @@ class PrivacyConfig:
 @dataclass
 class OutputConfig:
     path: str = "output/heatmap.png"
-    # Write the showcase website here as well (None = don't).
-    site_dir: str | None = None
     cache_dir: str = ".mappatrakka-cache"
     use_cache: bool = True
     # 0 = pick automatically.
     workers: int = 0
-
-
-@dataclass
-class SiteConfig:
-    title: str = "Where I Go"
-    subtitle: str = "Every ride, run and walk I've recorded, stacked on top of each other."
-    author: str = ""
 
 
 @dataclass
@@ -157,7 +148,6 @@ class Config:
     render: RenderConfig = field(default_factory=RenderConfig)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
-    site: SiteConfig = field(default_factory=SiteConfig)
 
     def validate(self) -> None:
         r = self.render

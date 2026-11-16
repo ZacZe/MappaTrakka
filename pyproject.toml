@@ -24,9 +24,6 @@ mappatrakka = "mappatrakka.cli:main"
 [tool.setuptools.packages.find]
 include = ["mappatrakka*"]
 
-[tool.setuptools.package-data]
-mappatrakka = ["site_template/*"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]

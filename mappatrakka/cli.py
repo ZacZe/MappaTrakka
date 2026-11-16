@@ -16,10 +16,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="mappatrakka",
         description="Make a heatmap of your most travelled routes from a Strava bulk export.",
     )
-    p.add_argument("export_dir", help="unzipped Strava export (the folder with activities.csv)")
+    p.add_argument("export", help="Strava export: the .zip Strava sent you, or the unzipped folder")
     p.add_argument("-c", "--config", help="TOML settings file (see config.example.toml)")
     p.add_argument("-o", "--output", help="PNG to write (default output/heatmap.png)")
-    p.add_argument("--site", metavar="DIR", help="also build the showcase website into DIR")
 
     g = p.add_argument_group("image")
     g.add_argument("--size", type=int, metavar="PX", help="square image, PX by PX")
@@ -56,8 +55,6 @@ def apply_args(cfg: Config, args: argparse.Namespace) -> Config:
     r, f, g, o = cfg.render, cfg.filters, cfg.region, cfg.output
     if args.output:
         o.path = args.output
-    if args.site:
-        o.site_dir = args.site
     if args.size:
         r.width = r.height = args.size
     if args.width:
@@ -113,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     from mappatrakka.pipeline import run
 
     try:
-        result = run(args.export_dir, cfg, show_progress=not args.quiet)
+        result = run(args.export, cfg, show_progress=not args.quiet)
     except (FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -128,6 +125,4 @@ def main(argv: list[str] | None = None) -> int:
             f"{s['distance_km']:.0f} km, busiest pixel visited {s['max_overlap']} times."
         )
         print(f"Image: {result.image_path}")
-        if result.site_dir:
-            print(f"Website: {result.site_dir / 'index.html'}")
     return 0

@@ -7,8 +7,8 @@ x2 at 60 deg). Over a city-sized map that change is tiny, but it means very
 large maps exaggerate the northern part, and points past ~85 deg can't be
 shown at all.
 
-The output also lines up exactly with web map tiles (Leaflet, OSM, CARTO),
-which is what lets the showcase site lay the heatmap over a basemap.
+It's also the projection web maps use, so the image lines up with standard
+map tiles if you ever want to lay it over one.
 """
 
 from __future__ import annotations

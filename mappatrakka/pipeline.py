@@ -4,7 +4,7 @@
 2. parse every file (in parallel), clean it and summarise it
 3. pick the map area from the summaries
 4. draw every activity that crosses the area
-5. colour it in and save, plus the website if asked for
+5. colour it in and save
 """
 
 from __future__ import annotations
@@ -15,14 +15,14 @@ import sys
 import tempfile
 import time
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Callable, Iterable, Iterator
 
 import numpy as np
 
+from mappatrakka.archive import open_export
 from mappatrakka.cache import TrackCache
 from mappatrakka.colormaps import get_colormap
 from mappatrakka.config import CleaningConfig, Config
@@ -32,34 +32,41 @@ from mappatrakka.parsers.model import Track
 from mappatrakka.processing import PrivacyZone, clean_track, line_length_m
 from mappatrakka.projection import Bounds, PixelTransform, to_mercator
 from mappatrakka.region import ActivitySummary, RegionChoice, choose_region
-from mappatrakka.render import HeatmapCanvas, colourise, normalise, overlay
+from mappatrakka.render import HeatmapCanvas, colourise, normalise
 
 log = logging.getLogger(__name__)
 
+# Called as progress(stage, done, total), e.g. ("Reading", 12, 340).
+ProgressFn = Callable[[str, int, int], None]
+
 
 class Progress:
-    """Minimal progress line on stderr. No dependency, no fuss."""
+    """Progress line on stderr, or forwarded to a callback (the web page)."""
 
-    def __init__(self, total: int, label: str, enabled: bool = True):
+    def __init__(self, total: int, label: str, enabled: bool = True, callback: ProgressFn | None = None):
         self.total = max(total, 1)
         self.label = label
         self.enabled = enabled and total > 0
+        self.callback = callback
         self.tty = sys.stderr.isatty()
         self.done = 0
         self._last_pct = -1
         self._start = time.monotonic()
+        if callback:
+            callback(label, 0, total)
 
     def step(self, n: int = 1) -> None:
         self.done += n
-        if not self.enabled:
-            return
         pct = int(100 * self.done / self.total)
-        if self.tty:
-            if pct != self._last_pct or self.done == self.total:
-                sys.stderr.write(f"\r{self.label}: {self.done}/{self.total} ({pct}%)")
-                sys.stderr.flush()
-        elif pct // 10 != self._last_pct // 10:
-            sys.stderr.write(f"{self.label}: {self.done}/{self.total} ({pct}%)\n")
+        if self.callback and (pct != self._last_pct or self.done == self.total):
+            self.callback(self.label, self.done, self.total)
+        if self.enabled:
+            if self.tty:
+                if pct != self._last_pct or self.done == self.total:
+                    sys.stderr.write(f"\r{self.label}: {self.done}/{self.total} ({pct}%)")
+                    sys.stderr.flush()
+            elif pct // 10 != self._last_pct // 10:
+                sys.stderr.write(f"{self.label}: {self.done}/{self.total} ({pct}%)\n")
         self._last_pct = pct
 
     def close(self) -> None:
@@ -155,6 +162,10 @@ def _run_jobs(jobs: list[_Job], workers: int) -> Iterator[_Parsed]:
     if workers <= 1:
         yield from map(_process, jobs)
         return
+    # Imported here because multiprocessing isn't available everywhere (the
+    # in-browser build runs single-process).
+    from concurrent.futures import ProcessPoolExecutor
+
     with ProcessPoolExecutor(max_workers=workers) as pool:
         # map() yields in submission order, which keeps everything downstream
         # deterministic no matter which worker finishes first.
@@ -167,21 +178,29 @@ class RunResult:
     region: RegionChoice
     transform: PixelTransform
     stats: dict
-    site_dir: Path | None = None
+    # Why activities were left out, e.g. {"excluded type Virtual Ride": 4}.
+    skipped: dict[str, int] = field(default_factory=dict)
 
 
-def run(export_dir: str | Path, cfg: Config, show_progress: bool = True) -> RunResult:
-    export_dir = Path(export_dir)
-    if not export_dir.is_dir():
-        raise FileNotFoundError(f"export folder not found: {export_dir}")
+def run(
+    export: str | Path,
+    cfg: Config,
+    show_progress: bool = True,
+    progress: ProgressFn | None = None,
+) -> RunResult:
+    """Make the heatmap. `export` is the export folder or the .zip itself."""
+    with open_export(export) as export_dir:
+        return _run(export_dir, cfg, show_progress, progress)
 
+
+def _run(export_dir: Path, cfg: Config, show_progress: bool, progress: ProgressFn | None) -> RunResult:
     activities = read_activities(export_dir)
     log.info("Found %d activities in the export", len(activities))
     selected, skipped = select_activities(activities, cfg.filters)
     for reason, n in skipped.most_common():
         log.info("  skipped %d: %s", n, reason)
     if not selected:
-        raise ValueError("no activities left after filtering - check the export folder and filters")
+        raise ValueError("no activities left after filtering - check the export and the filters")
 
     zones = [PrivacyZone(float(z["lat"]), float(z["lon"]), float(z["radius_m"])) for z in cfg.privacy.zones]
     excluded_sub = frozenset(s.lower() for s in cfg.filters.exclude_sub_sports)
@@ -203,7 +222,7 @@ def run(export_dir: str | Path, cfg: Config, show_progress: bool = True) -> RunR
         summaries: list[ActivitySummary] = []
         reasons: Counter[str] = Counter()
         first_times, last_times = [], []
-        progress = Progress(len(jobs), "Reading", show_progress)
+        bar = Progress(len(jobs), "Reading", show_progress, progress)
         for res in _run_jobs(jobs, workers):
             act = selected[res.index]
             for w in res.warnings:
@@ -215,8 +234,8 @@ def run(export_dir: str | Path, cfg: Config, show_progress: bool = True) -> RunR
                 if res.first_time is not None:
                     first_times.append(res.first_time)
                     last_times.append(res.last_time)
-            progress.step()
-        progress.close()
+            bar.step()
+        bar.close()
         for reason, n in reasons.most_common():
             log.info("  dropped %d: %s", n, reason)
         if not summaries:
@@ -233,46 +252,39 @@ def run(export_dir: str | Path, cfg: Config, show_progress: bool = True) -> RunR
         cache = TrackCache(cache_dir)
         visible = [s for s in summaries if s.bounds.intersects(region.bounds)]
         drawn: list[Activity] = []
-        progress = Progress(len(visible), "Drawing", show_progress)
+        bar = Progress(len(visible), "Drawing", show_progress, progress)
         for s in visible:
             act = selected[s.index]
             try:
                 track = load_track(act.path, cache)  # type: ignore[arg-type]
             except ParseError:
-                progress.step()
+                bar.step()
                 continue
             lines = clean_track(track, cfg.cleaning, zones)
-            if canvas.add_activity([to_mercator(l[:, 0], l[:, 1]) for l in lines]):
+            if canvas.add_activity([to_mercator(line[:, 0], line[:, 1]) for line in lines]):
                 drawn.append(act)
-            progress.step()
-        progress.close()
+            bar.step()
+        bar.close()
 
+    if progress:
+        progress("Colouring", 0, 1)
     values, reference = normalise(canvas.counts, r)
+    stats = _stats(selected, summaries, drawn, canvas, reference, region, first_times, last_times)
+    del canvas
     cmap = get_colormap(r.colormap, r.colormap_stops)
     poster = colourise(values, cmap, r)
+    del values
 
     image_path = Path(cfg.output.path)
     image_path.parent.mkdir(parents=True, exist_ok=True)
     poster.save(image_path)
+    if progress:
+        progress("Colouring", 1, 1)
     log.info("Saved %s (%dx%d)", image_path, poster.width, poster.height)
 
-    stats = _stats(selected, summaries, drawn, canvas, reference, region, first_times, last_times)
-
-    site_dir = None
-    if cfg.output.site_dir:
-        from mappatrakka.site import build_site
-
-        site_dir = Path(cfg.output.site_dir)
-        if not zones:
-            log.warning(
-                "Building a public website with no privacy zones set. Your most "
-                "frequent start and end points (home, work) will be obvious - see "
-                "[privacy] in config.example.toml."
-            )
-        build_site(site_dir, poster, overlay(values, cmap), region.bounds, stats, cfg.site)
-        log.info("Website written to %s", site_dir)
-
-    return RunResult(image_path, region, transform, stats, site_dir)
+    all_skipped = Counter(skipped)
+    all_skipped.update(reasons)
+    return RunResult(image_path, region, transform, stats, dict(all_skipped.most_common()))
 
 
 def _stats(
