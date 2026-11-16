@@ -9,6 +9,7 @@ venv/
 output/
 .mappatrakka-cache/
 demo_export/
+dist/
 
 # never commit personal data
 export/

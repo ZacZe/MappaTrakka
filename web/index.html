@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MappaTrakka</title>
+  <meta name="description" content="Turn your Strava export into a glowing heatmap of the roads you ride and run most. Runs entirely in your browser.">
+  <meta property="og:title" content="MappaTrakka">
+  <meta property="og:description" content="A glowing heatmap of every route you've recorded. Your files never leave your device.">
+  <meta property="og:image" content="assets/sample.jpg">
+  <meta name="theme-color" content="#09090b">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css?v=__BUILD__">
+</head>
+<body>
+  <header class="hero wrap">
+    <div class="hero-text">
+      <p class="eyebrow">MappaTrakka</p>
+      <h1>See where you<br>really go.</h1>
+      <p class="lede">Drop in your Strava export and get a high-resolution heatmap of every
+        route you've recorded. The roads you use most glow white-hot.</p>
+      <p class="private"><span class="dot" aria-hidden="true"></span>Runs entirely in your browser. Your files are never uploaded anywhere.</p>
+    </div>
+    <figure class="hero-art">
+      <img src="assets/sample.jpg" alt="Example heatmap made from demo data" width="800" height="800">
+      <figcaption>Made from generated demo data</figcaption>
+    </figure>
+  </header>
+
+  <main class="wrap">
+    <section class="card start" id="start" aria-labelledby="start-title">
+      <h2 id="start-title">1. Add your activities</h2>
+
+      <div class="drop" id="drop" tabindex="0" role="button" aria-describedby="drop-help">
+        <svg class="drop-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0-12 4.5 4.5M12 3 7.5 7.5M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p class="drop-title">Drop your Strava export here</p>
+        <p class="drop-help" id="drop-help">The <strong>.zip</strong> Strava emails you, the unzipped folder, or any
+          <strong>.fit / .gpx / .tcx</strong> files (gzipped is fine).</p>
+        <div class="drop-buttons">
+          <button type="button" class="btn" id="pick-files">Choose files or zip</button>
+          <button type="button" class="btn" id="pick-folder">Choose folder</button>
+        </div>
+        <input type="file" id="file-input" multiple accept=".zip,.csv,.fit,.gpx,.tcx,.gz" hidden>
+        <input type="file" id="folder-input" webkitdirectory multiple hidden>
+      </div>
+
+      <p class="selection" id="selection" aria-live="polite"></p>
+
+      <details class="help">
+        <summary>How do I get my Strava export?</summary>
+        <ol>
+          <li>On strava.com (not the app), open <strong>Settings → My Account</strong>.</li>
+          <li>Under <strong>Download or Delete Your Account</strong>, choose <strong>Get Started</strong>, then <strong>Request Your Archive</strong>.</li>
+          <li>Strava emails you a link to a .zip, usually within a few hours. Drop that zip straight in here; there's no need to unzip it.</li>
+        </ol>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="opts-title">
+      <h2 id="opts-title">2. Tweak (optional)</h2>
+      <form class="options" id="options">
+        <label>Image size
+          <select name="size">
+            <option value="2000">2000 × 2000</option>
+            <option value="3000">3000 × 3000</option>
+            <option value="4000" selected>4000 × 4000</option>
+            <option value="6000">6000 × 6000 (slow, needs lots of memory)</option>
+          </select>
+        </label>
+        <label>Colours
+          <select name="colormap">
+            <option value="fire" selected>Fire</option>
+            <option value="ice">Ice</option>
+            <option value="neon">Neon</option>
+            <option value="mono">Mono</option>
+          </select>
+        </label>
+        <label>Area
+          <select name="area">
+            <option value="1" selected>Where I'm most active</option>
+            <option value="2">2nd most active area</option>
+            <option value="3">3rd most active area</option>
+            <option value="all">Everything (includes trips away)</option>
+          </select>
+        </label>
+        <label>Brightness curve
+          <select name="scale">
+            <option value="log" selected>Logarithmic (balanced)</option>
+            <option value="sqrt">Square root (punchier)</option>
+            <option value="linear">Linear (only the busiest roads)</option>
+          </select>
+        </label>
+        <label>Line width <output id="lw-out">2.0</output>
+          <input type="range" name="line_width" min="1" max="5" step="0.5" value="2">
+        </label>
+        <label>Glow <output id="glow-out">0.35</output>
+          <input type="range" name="glow" min="0" max="1" step="0.05" value="0.35">
+        </label>
+        <label class="wide">Only these activity types <span class="muted">(comma separated, blank = all outdoor types)</span>
+          <input type="text" name="include_types" placeholder="e.g. Ride, Run" autocomplete="off">
+        </label>
+        <label class="check"><input type="checkbox" name="exclude_commutes"> Leave out commutes</label>
+      </form>
+    </section>
+
+    <section class="card go" aria-labelledby="go-title">
+      <h2 id="go-title" class="sr-only">3. Generate</h2>
+      <div class="go-row">
+        <button type="button" class="btn primary" id="generate" disabled>Generate heatmap</button>
+        <button type="button" class="btn ghost" id="demo">Try with demo data</button>
+        <button type="button" class="btn ghost" id="cancel" hidden>Cancel</button>
+      </div>
+      <div class="progress" id="progress" hidden>
+        <div class="bar"><span id="bar-fill"></span></div>
+        <p id="progress-text" aria-live="polite"></p>
+      </div>
+      <p class="engine" id="engine" aria-live="polite">Starting up…</p>
+      <p class="error" id="error" role="alert" hidden></p>
+    </section>
+
+    <section class="result" id="result" hidden aria-labelledby="result-title">
+      <div class="result-head">
+        <h2 id="result-title">Your heatmap</h2>
+        <a class="btn primary" id="download" download="heatmap.png" href="#">Download PNG</a>
+      </div>
+      <div class="viewer" id="viewer" tabindex="0" aria-label="Heatmap: scroll or pinch to zoom, drag to move">
+        <img id="result-img" alt="Your heatmap" draggable="false">
+      </div>
+      <p class="hint">Scroll or pinch to zoom, drag to move, double-click to reset.</p>
+      <div class="stats" id="stats"></div>
+      <div class="split">
+        <div class="card">
+          <h3>Activity types</h3>
+          <div class="types" id="types"></div>
+        </div>
+        <div class="card">
+          <h3>Left out</h3>
+          <ul class="skipped" id="skipped"></ul>
+          <details class="warnings" id="warnings" hidden>
+            <summary id="warnings-summary"></summary>
+            <ul id="warnings-list"></ul>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="card how" aria-labelledby="how-title">
+      <h2 id="how-title">How it works</h2>
+      <ol class="steps">
+        <li><strong>Reads every GPS file</strong> (FIT, GPX, TCX) and leaves out virtual rides, gym sessions and anything else without a real route.</li>
+        <li><strong>Cleans the tracks:</strong> removes GPS glitches and breaks lines wherever the signal dropped, so nothing gets drawn straight across the map.</li>
+        <li><strong>Finds your home turf.</strong> Activities are grouped by area and the busiest area wins, so one holiday abroad doesn't shrink everything to a dot.</li>
+        <li><strong>Stacks your routes.</strong> Each activity is drawn once and the layers add up. Brightness is how many separate trips used a road, on a log scale so quiet lanes still show.</li>
+      </ol>
+      <p class="muted small">The processing code is the same open-source Python that runs on the command line, compiled to run in your browser with Pyodide.
+        The first run downloads about 15&nbsp;MB, which your browser then caches.</p>
+    </section>
+  </main>
+
+  <footer class="wrap footer">
+    <a href="https://github.com/ZacZe/MappaTrakka">MappaTrakka on GitHub</a>
+  </footer>
+
+  <script src="app.js?v=__BUILD__"></script>
+</body>
+</html>
