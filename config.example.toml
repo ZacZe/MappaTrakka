@@ -43,7 +43,8 @@ padding = 0.05
 radius_km = 15.0
 
 [cleaning]
-max_gap_m = 250.0         # bigger jumps between points start a new line
+max_gap_m = 250.0         # bigger jumps between points start a new line...
+max_gap_s = 30.0          # ...unless they took at most this long at a believable speed
 max_speed_mps = 60.0      # faster than this is a GPS glitch
 spike_distance_m = 400.0  # glitch detection for files without timestamps
 smoothing_window = 1      # moving average in points; 1 = off

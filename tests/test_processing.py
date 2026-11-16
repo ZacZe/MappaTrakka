@@ -135,3 +135,22 @@ def test_clean_track_keeps_segments_apart(cleaning):
 def test_line_length():
     line = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
     assert line_length_m(line) == pytest.approx(2 * 111_195, rel=1e-3)
+
+
+def test_sparse_smart_recording_stays_connected(cleaning):
+    # A point every 30 s at 10 m/s: 300 m apart, but plainly continuous riding.
+    pts = straight_line(51.0, 0.0, 51.03, 0.0, n=12, step_s=30)
+    lines = clean_segment(seg(pts), cleaning)
+    assert len(lines) == 1 and len(lines[0]) == 12
+
+
+def test_long_pause_then_far_away_still_splits(cleaning):
+    a = straight_line(51.0, 0.0, 51.002, 0.0, n=10, step_s=2)
+    # Ten minutes later and 1.5 km away (a lift, a train...).
+    b = straight_line(51.015, 0.0, 51.017, 0.0, n=10, start=a[-1][2] + timedelta(minutes=10), step_s=2)
+    assert len(clean_segment(seg(a + b), cleaning)) == 2
+
+
+def test_sparse_points_without_timestamps_split(cleaning):
+    pts = straight_line(51.0, 0.0, 51.03, 0.0, n=12, timed=False)
+    assert len(clean_segment(seg(pts), cleaning)) == 0

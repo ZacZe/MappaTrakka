@@ -148,9 +148,13 @@ def _clean_piece(lat, lon, t, cfg: CleaningConfig) -> list[np.ndarray]:
     step = haversine(lat[:-1], lon[:-1], lat[1:], lon[1:])
     dt = np.diff(t)
     with np.errstate(invalid="ignore", divide="ignore"):
-        too_fast = np.isfinite(dt) & (dt > 0) & (step / dt > cfg.max_speed_mps) & (step > 50)
+        timed = np.isfinite(dt) & (dt > 0)
+        speed = np.where(timed, step / np.where(timed, dt, 1.0), np.inf)
+    too_fast = timed & (speed > cfg.max_speed_mps) & (step > 50)
+    # A long step is a dropout unless it was quick and at a sane speed.
+    brief = timed & (dt <= cfg.max_gap_s) & (speed <= cfg.max_speed_mps)
     breaks = (
-        (step > cfg.max_gap_m)
+        ((step > cfg.max_gap_m) & ~brief)
         | too_fast
         # Crossing the antimeridian - drawing it would wrap around the world.
         | (np.abs(np.diff(lon)) > 180)

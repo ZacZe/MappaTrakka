@@ -71,6 +71,10 @@ class CleaningConfig:
     # Consecutive points further apart than this start a new line, so GPS
     # dropouts and pauses-while-moving don't draw straight lines across the map.
     max_gap_m: float = 250.0
+    # ...unless timestamps show the gap took at most this long at a believable
+    # speed. Garmin "smart recording" can log a point only every 10-30 s on a
+    # straight road, and those stretches are real riding, not dropouts.
+    max_gap_s: float = 30.0
     # Implied speeds above this are treated as GPS glitches (needs timestamps).
     max_speed_mps: float = 60.0
     # Fallback spike detection for files without timestamps.
@@ -188,7 +192,7 @@ class Config:
             raise ConfigError("region.cluster_radius_km must be positive")
 
         c = self.cleaning
-        if c.max_gap_m <= 0 or c.max_speed_mps <= 0 or c.spike_distance_m <= 0:
+        if c.max_gap_m <= 0 or c.max_gap_s < 0 or c.max_speed_mps <= 0 or c.spike_distance_m <= 0:
             raise ConfigError("cleaning distances and speeds must be positive")
         if c.smoothing_window < 1:
             raise ConfigError("cleaning.smoothing_window must be >= 1")
