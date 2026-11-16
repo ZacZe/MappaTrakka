@@ -1,0 +1,63 @@
+# MappaTrakka settings. Copy to config.toml (which git ignores), change what
+# you like, and run:  python -m mappatrakka export.zip -c config.toml
+# Anything left out keeps its default. Command line flags beat this file.
+
+[render]
+width = 4000
+height = 4000
+line_width = 2.0          # pixels
+supersample = 3           # anti-aliasing quality, 1-8
+colormap = "fire"         # fire, ice, neon, mono
+# Or roll your own gradient (0.0 is the background):
+# colormap_stops = [[0.0, "#000000"], [0.4, "#004466"], [1.0, "#ffffff"]]
+scale = "log"             # log, sqrt or linear brightness
+reference_percentile = 99.5
+min_reference = 3.0       # stops a handful of activities washing out to white
+gamma = 1.0
+glow_strength = 0.35      # 0 turns the glow off
+glow_radius = 4.0
+background = "#000000"
+
+[filters]
+include_types = []        # e.g. ["Ride", "Gravel Ride"]; empty = everything not excluded
+exclude_types = [
+  "VirtualRide", "VirtualRun", "VirtualRow", "Workout", "WeightTraining", "Yoga",
+  "Pilates", "Crossfit", "HIIT", "Elliptical", "StairStepper", "Rowing",
+  "IndoorRowing", "RockClimbing", "HighIntensityIntervalTraining",
+]
+exclude_name_patterns = ["zwift", "rouvy", "trainerroad", "indoor"]
+exclude_sub_sports = [
+  "virtual_activity", "indoor_cycling", "indoor_running", "treadmill",
+  "indoor_rowing", "indoor_walking", "spin",
+]
+exclude_commutes = false
+
+[region]
+mode = "auto"             # auto, all, bbox or center
+cluster_radius_km = 30.0  # how close activities must be to count as one area
+cluster_rank = 1          # 2 = second busiest area, and so on
+trim_percent = 2.0        # ignore the furthest-reaching 2% of activities on each side
+padding = 0.05
+# bbox = [-0.25, 51.45, 0.05, 51.58]   # min_lon, min_lat, max_lon, max_lat (with mode = "bbox")
+# center = [51.5074, -0.1278]          # lat, lon (with mode = "center")
+radius_km = 15.0
+
+[cleaning]
+max_gap_m = 250.0         # bigger jumps between points start a new line
+max_speed_mps = 60.0      # faster than this is a GPS glitch
+spike_distance_m = 400.0  # glitch detection for files without timestamps
+smoothing_window = 1      # moving average in points; 1 = off
+min_segment_points = 3
+
+# Hide everything within radius_m of these points, e.g. your home, before
+# sharing the image. Add as many as you like.
+# [[privacy.zones]]
+# lat = 51.5074
+# lon = -0.1278
+# radius_m = 300
+
+[output]
+path = "output/heatmap.png"
+cache_dir = ".mappatrakka-cache"
+use_cache = true
+workers = 0               # 0 = automatic

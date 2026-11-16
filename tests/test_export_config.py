@@ -147,3 +147,17 @@ def test_bad_config_rejected(data):
 def test_missing_config_file(tmp_path):
     with pytest.raises(ConfigError):
         load_config(tmp_path / "nope.toml")
+
+
+def test_example_config_matches_defaults():
+    from pathlib import Path
+
+    from mappatrakka.config import Config
+
+    example = load_config(Path(__file__).parent.parent / "config.example.toml")
+    defaults = Config()
+    defaults.validate()
+    # Same settings apart from type names being written in CamelCase.
+    example.filters.exclude_types = [t.lower() for t in example.filters.exclude_types]
+    defaults.filters.exclude_types = [t.lower() for t in defaults.filters.exclude_types]
+    assert example == defaults
