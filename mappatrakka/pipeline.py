@@ -36,6 +36,22 @@ from mappatrakka.render import HeatmapCanvas, colourise, normalise
 
 log = logging.getLogger(__name__)
 
+# Strava's names for the sports FIT/TCX files record, used when there's no
+# activities.csv to say what each activity was.
+SPORT_NAMES = {
+    "cycling": "Ride",
+    "biking": "Ride",
+    "e_biking": "E-Bike Ride",
+    "running": "Run",
+    "walking": "Walk",
+    "hiking": "Hike",
+    "swimming": "Swim",
+    "rowing": "Rowing",
+    "paddling": "Canoe",
+    "alpine_skiing": "Alpine Ski",
+    "cross_country_skiing": "Nordic Ski",
+}
+
 # Called as progress(stage, done, total), e.g. ("Reading", 12, 340).
 ProgressFn = Callable[[str, int, int], None]
 
@@ -93,6 +109,7 @@ class _Parsed:
     warnings: list[str] = field(default_factory=list)
     first_time: float | None = None
     last_time: float | None = None
+    sport: str | None = None
 
 
 def load_track(path: Path, cache: TrackCache) -> Track:
@@ -131,6 +148,7 @@ def _process(job: _Job) -> _Parsed:
         return out
 
     out.warnings.extend(track.warnings)
+    out.sport = track.sport
     if track.sub_sport and track.sub_sport in job.excluded_sub_sports:
         out.skip_reason = f"indoor ({track.sub_sport})"
         return out
@@ -220,11 +238,14 @@ def _run(export_dir: Path, cfg: Config, show_progress: bool, progress: ProgressF
         log.info("Reading %d GPS files with %d worker(s)", len(jobs), workers)
 
         summaries: list[ActivitySummary] = []
+        sports: dict[int, str] = {}
         reasons: Counter[str] = Counter()
         first_times, last_times = [], []
         bar = Progress(len(jobs), "Reading", show_progress, progress)
         for res in _run_jobs(jobs, workers):
             act = selected[res.index]
+            if res.sport:
+                sports[res.index] = res.sport
             for w in res.warnings:
                 log.warning("%s: %s", act.path.name if act.path else act.activity_id, w)
             if res.summary is None:
@@ -251,7 +272,7 @@ def _run(export_dir: Path, cfg: Config, show_progress: bool, progress: ProgressF
         canvas = HeatmapCanvas(transform, r.line_width, r.supersample)
         cache = TrackCache(cache_dir)
         visible = [s for s in summaries if s.bounds.intersects(region.bounds)]
-        drawn: list[Activity] = []
+        drawn: list[tuple[int, Activity]] = []
         bar = Progress(len(visible), "Drawing", show_progress, progress)
         for s in visible:
             act = selected[s.index]
@@ -262,14 +283,15 @@ def _run(export_dir: Path, cfg: Config, show_progress: bool, progress: ProgressF
                 continue
             lines = clean_track(track, cfg.cleaning, zones)
             if canvas.add_activity([to_mercator(line[:, 0], line[:, 1]) for line in lines]):
-                drawn.append(act)
+                drawn.append((s.index, act))
             bar.step()
         bar.close()
 
     if progress:
         progress("Colouring", 0, 1)
     values, reference = normalise(canvas.counts, r)
-    stats = _stats(selected, summaries, drawn, canvas, reference, region, first_times, last_times)
+    types = Counter(_type_name(act, sports.get(i)) for i, act in drawn)
+    stats = _stats(summaries, drawn, types, canvas, reference, region, first_times, last_times)
     del canvas
     cmap = get_colormap(r.colormap, r.colormap_stops)
     poster = colourise(values, cmap, r)
@@ -287,10 +309,18 @@ def _run(export_dir: Path, cfg: Config, show_progress: bool, progress: ProgressF
     return RunResult(image_path, region, transform, stats, dict(all_skipped.most_common()))
 
 
+def _type_name(act: Activity, sport: str | None) -> str:
+    if act.type:
+        return act.type
+    if sport:
+        return SPORT_NAMES.get(sport, sport.replace("_", " ").title())
+    return "Unknown"
+
+
 def _stats(
-    selected: list[Activity],
     summaries: list[ActivitySummary],
-    drawn: list[Activity],
+    drawn: list[tuple[int, Activity]],
+    types: Counter[str],
     canvas: HeatmapCanvas,
     reference: float,
     region: RegionChoice,
@@ -298,11 +328,7 @@ def _stats(
     last_times: Iterable[float],
 ) -> dict:
     by_index = {s.index: s for s in summaries}
-    drawn_ids = {a.activity_id for a in drawn}
-    drawn_km = sum(
-        by_index[i].length_m for i, a in enumerate(selected) if a.activity_id in drawn_ids and i in by_index
-    ) / 1000
-    types = Counter((a.type or "Unknown") for a in drawn)
+    drawn_km = sum(by_index[i].length_m for i, _ in drawn) / 1000
     first = min(first_times, default=None)
     last = max(last_times, default=None)
     w_km, h_km = region.bounds.ground_size_km()

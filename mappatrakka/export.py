@@ -24,6 +24,8 @@ class Activity:
     date: str
     path: Path | None
     commute: bool = False
+    # Filename as listed in activities.csv, even if the file wasn't found.
+    filename: str = ""
 
 
 def normalise_type(value: str) -> str:
@@ -142,6 +144,7 @@ def read_activities(export_dir: Path) -> list[Activity]:
                     date=cols.get(row, "activity date"),
                     path=path,
                     commute=_truthy(cols.get(row, "commute", "false")),
+                    filename=filename,
                 )
             )
 
@@ -178,7 +181,7 @@ def select_activities(
     for act in activities:
         kind = normalise_type(act.type)
         if act.path is None:
-            skipped["no GPS file"] += 1
+            skipped["GPS file missing from export" if act.filename else "no GPS file (manual entry)"] += 1
         elif include and kind not in include:
             skipped[f"type {act.type or 'unknown'} not included"] += 1
         elif kind and kind in exclude:
