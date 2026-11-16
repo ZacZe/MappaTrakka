@@ -65,6 +65,7 @@
       showResult(msg.png, msg.preview, msg.meta);
       finish();
     } else if (msg.type === "error") {
+      if (!state.ready) els.engine.textContent = "The engine couldn't start. Check your connection and reload the page.";
       showError(msg.message);
       if (msg.detail) console.error(msg.detail);
       finish();
