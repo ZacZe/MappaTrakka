@@ -131,6 +131,8 @@ def test_generate_loose_gps_files_without_csv(export, tmp_path):
         shutil.copy(f, flat)
     out = generate(str(flat), {"size": 200})
     assert out["stats"]["activities_drawn"] >= 4
+    # No csv, but FIT and TCX files say what sport they were.
+    assert set(out["stats"]["types"]) & {"Ride", "Run", "Walk"}
 
 
 def test_generate_demo():

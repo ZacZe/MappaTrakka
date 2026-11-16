@@ -9,16 +9,22 @@ Kept free of any Pyodide imports so it can be tested with plain CPython.
 
 from __future__ import annotations
 
+import io
 import logging
 import tempfile
 from pathlib import Path
 from typing import Any
 
+from PIL import Image
+
 from mappatrakka.config import config_from_dict
 from mappatrakka.export import is_gps_file
 from mappatrakka.pipeline import ProgressFn, run
+from mappatrakka.render import shrink
 
 MAX_WARNINGS = 50
+# The page shows this while zoomed out and swaps in the full image on zoom.
+PREVIEW_SIZE = 1600
 
 # Form fields the page may send, and where they go in the config.
 _OPTION_MAP = {
@@ -93,12 +99,20 @@ def generate(upload_dir: str, options: dict[str, Any], progress: ProgressFn | No
             cfg.output.path = str(Path(tmp) / "heatmap.png")
             result = run(find_export(upload_dir), cfg, show_progress=False, progress=progress)
             png = Path(result.image_path).read_bytes()
+            with Image.open(result.image_path) as img:
+                small = shrink(img, PREVIEW_SIZE)
+            buf = io.BytesIO()
+            small.save(buf, format="PNG")
+            preview = buf.getvalue()
     finally:
         root_logger.removeHandler(handler)
         root_logger.setLevel(old_level)
 
     return {
         "png": png,
+        "preview": preview,
+        "preview_width": small.width,
+        "preview_height": small.height,
         "width": cfg.render.width,
         "height": cfg.render.height,
         "stats": result.stats,

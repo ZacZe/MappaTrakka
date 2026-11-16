@@ -206,3 +206,23 @@ def colourise(values: np.ndarray, cmap: Colormap, cfg: RenderConfig) -> Image.Im
             rgb = np.where(unlit, bg, rgb)
         out[y : y + band] = np.round(rgb * 255).astype(np.uint8)
     return Image.fromarray(out)
+
+
+def shrink(img: Image.Image, longest: int) -> Image.Image:
+    """Smaller copy that keeps thin lines visible.
+
+    Plain downscaling averages a 2px line with the black around it until it
+    all but disappears. Spreading each bright pixel over its neighbours first
+    (a max filter about as wide as the shrink factor) keeps the routes about
+    as bright as they look at full size.
+    """
+    factor = max(img.size) / longest
+    if factor <= 1:
+        return img.copy()
+    k = int(factor)
+    if k % 2 == 0:
+        k += 1
+    if k > 1:
+        img = img.filter(ImageFilter.MaxFilter(min(k, 9)))
+    size = (max(1, round(img.width / factor)), max(1, round(img.height / factor)))
+    return img.resize(size, Image.Resampling.LANCZOS)
