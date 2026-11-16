@@ -161,3 +161,11 @@ def test_example_config_matches_defaults():
     example.filters.exclude_types = [t.lower() for t in example.filters.exclude_types]
     defaults.filters.exclude_types = [t.lower() for t in defaults.filters.exclude_types]
     assert example == defaults
+
+
+def test_include_types_keeps_untyped_loose_files(tmp_path):
+    (tmp_path / "activities").mkdir()
+    (tmp_path / "activities" / "a.gpx").write_bytes(b"<gpx/>")
+    acts = read_activities(tmp_path)
+    kept, _ = select_activities(acts, FilterConfig(include_types=["Ride"]))
+    assert len(kept) == 1

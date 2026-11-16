@@ -182,7 +182,9 @@ def select_activities(
         kind = normalise_type(act.type)
         if act.path is None:
             skipped["GPS file missing from export" if act.filename else "no GPS file (manual entry)"] += 1
-        elif include and kind not in include:
+        # No type known (loose files without activities.csv): the type filters
+        # can't judge these, so they're kept rather than silently dropped.
+        elif include and kind and kind not in include:
             skipped[f"type {act.type or 'unknown'} not included"] += 1
         elif kind and kind in exclude:
             skipped[f"excluded type {act.type}"] += 1
