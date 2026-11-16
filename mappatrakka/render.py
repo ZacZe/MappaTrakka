@@ -182,31 +182,27 @@ def _blur(values: np.ndarray, radius: float) -> np.ndarray:
 
 def colourise(values: np.ndarray, cmap: Colormap, cfg: RenderConfig) -> Image.Image:
     """Opaque RGB poster image."""
-    rgb = cmap(values).astype(np.float32) / 255.0
-    if cfg.glow_strength > 0 and cfg.glow_radius > 0:
-        halo = cmap(_blur(values, cfg.glow_radius)).astype(np.float32) / 255.0
-        halo *= cfg.glow_strength
-        # Screen blend: brightens without ever blowing past white, and leaves
-        # the sharp lines on top untouched where the halo is dark.
-        rgb = 1.0 - (1.0 - rgb) * (1.0 - halo)
-
+    glow = cfg.glow_strength > 0 and cfg.glow_radius > 0
+    halo_values = _blur(values, cfg.glow_radius) if glow else None
     bg = np.array(parse_colour(cfg.background), dtype=np.float32) / 255.0
-    if bg.any():
-        # Colormaps start at black; put a custom background under unlit pixels.
-        unlit = (values <= 0)[..., None]
-        rgb = np.where(unlit & (rgb.sum(axis=2, keepdims=True) == 0), bg, rgb)
-    return Image.fromarray(np.round(rgb * 255).astype(np.uint8))
 
-
-def overlay(values: np.ndarray, cmap: Colormap) -> Image.Image:
-    """Transparent RGBA version for laying over a web map.
-
-    The dark end of the gradient would vanish against a dark basemap, so
-    colours start a third of the way up and faint routes fade out through
-    transparency instead.
-    """
-    shifted = np.where(values > 0, 0.3 + 0.7 * values, 0.0)
-    rgb = cmap(shifted)
-    alpha = np.clip(np.sqrt(values) * 1.15, 0.0, 1.0)
-    rgba = np.dstack((rgb, np.round(alpha * 255).astype(np.uint8)))
-    return Image.fromarray(rgba)
+    h, w = values.shape
+    out = np.empty((h, w, 3), dtype=np.uint8)
+    # Work in bands of rows: full-size float RGB arrays for a 4000px image
+    # are ~200 MB each, which hurts in a browser tab.
+    band = 256
+    for y in range(0, h, band):
+        v = values[y : y + band]
+        rgb = cmap(v).astype(np.float32) / 255.0
+        if halo_values is not None:
+            halo = cmap(halo_values[y : y + band]).astype(np.float32) / 255.0
+            halo *= cfg.glow_strength
+            # Screen blend: brightens without ever blowing past white, and
+            # leaves the sharp lines on top untouched where the halo is dark.
+            rgb = 1.0 - (1.0 - rgb) * (1.0 - halo)
+        if bg.any():
+            # Colormaps start at black; put a custom background under unlit pixels.
+            unlit = (v <= 0)[..., None] & (rgb.sum(axis=2, keepdims=True) == 0)
+            rgb = np.where(unlit, bg, rgb)
+        out[y : y + band] = np.round(rgb * 255).astype(np.uint8)
+    return Image.fromarray(out)

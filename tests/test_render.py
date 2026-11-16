@@ -4,7 +4,7 @@ import pytest
 from mappatrakka.colormaps import PRESETS, Colormap, get_colormap
 from mappatrakka.config import RenderConfig
 from mappatrakka.projection import Bounds, PixelTransform
-from mappatrakka.render import CHUNK, HeatmapCanvas, colourise, normalise, overlay
+from mappatrakka.render import CHUNK, HeatmapCanvas, colourise, normalise
 
 
 def canvas(w=400, h=400, line_width=2.0):
@@ -112,10 +112,6 @@ def test_output_dimensions_non_square():
     img = colourise(v, get_colormap("fire"), RenderConfig())
     assert img.size == (300, 150)
     assert img.mode == "RGB"
-    ov = overlay(v, get_colormap("fire"))
-    assert ov.size == (300, 150) and ov.mode == "RGBA"
-    alpha = np.asarray(ov)[..., 3]
-    assert alpha[0, 299] == 0 and alpha.max() > 0
 
 
 def test_background_is_black_and_custom_background():
