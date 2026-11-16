@@ -42,8 +42,10 @@ def parse_gpx(data: bytes) -> Track:
                 elem.clear()
             elif tag in ("trkseg", "trk"):
                 trk.split()
+                elem.clear()
             elif tag == "rte":
                 rte.split()
+                elem.clear()
             elif tag in ("wpt", "metadata"):
                 elem.clear()
     except ET.ParseError as exc:

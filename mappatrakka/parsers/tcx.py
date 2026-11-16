@@ -49,8 +49,11 @@ def parse_tcx(data: bytes) -> Track:
                                 lon = to_float(coord.text)
                 builder.point(lat, lon, when)
                 elem.clear()
+            elif tag in ("Track", "Lap"):
+                elem.clear()
             elif tag in ("Activity", "Course"):
                 builder.split()
+                elem.clear()
     except ET.ParseError as exc:
         if not seen_root:
             raise ParseError(f"invalid XML: {exc}") from None
