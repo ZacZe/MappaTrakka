@@ -138,3 +138,5 @@ def test_generate_loose_gps_files_without_csv(export, tmp_path):
 def test_generate_demo():
     out = generate_demo({"size": 300})
     assert out["stats"]["activities_drawn"] == 120
+    s, w, n, e = out["bounds"]
+    assert s < 52.3676 < n and w < 4.9041 < e  # the demo's home town

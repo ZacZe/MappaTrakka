@@ -81,6 +81,12 @@ around 4 minutes for a thousand. In exchange, nothing leaves the visitor's devic
 It takes the export zip, the unzipped folder, or a pile of loose `.fit`, `.gpx`
 and `.tcx` files.
 
+The "On a map" tab lays the result over OpenStreetMap (via Leaflet) so you can
+see which streets you're looking at. The heatmap is already Web Mercator, the
+same projection as the map tiles, so it lines up with just its corner
+coordinates. Leaflet and the tiles are only fetched when that tab is opened, and
+tile requests do tell OpenStreetMap roughly which area is being viewed.
+
 No data handy? `python -m mappatrakka.demo` writes a fake export (a made-up
 town, some holidays, virtual rides and a few broken files) to try things on,
 and the website has a "Try with demo data" button.

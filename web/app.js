@@ -288,8 +288,10 @@
     state.previewUrl = URL.createObjectURL(new Blob([preview], { type: "image/png" }));
     els.download.href = state.resultUrl;
     els.result.hidden = false;
-    els.viewer.style.setProperty("--ar", meta.width + " / " + meta.height);
+    els.result.style.setProperty("--ar", meta.width + " / " + meta.height);
     viewer.load(state.previewUrl, state.resultUrl, meta.width, meta.height, meta.preview_width);
+    // Very big images are too heavy to recolour for the map; the preview is plenty there.
+    mapView.set(meta.width * meta.height <= 16e6 ? state.resultUrl : state.previewUrl, meta.bounds);
 
     var s = meta.stats || {};
     var first = s.first_activity ? s.first_activity.slice(0, 4) : null;
@@ -469,8 +471,143 @@
         img.src = preview;
         fit();
       },
+      fit: fit,
     };
   })();
+
+  // ---- map view ------------------------------------------------------------------
+
+  var LEAFLET = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/";
+
+  var mapView = (function () {
+    var box = $("map"), status = $("map-status");
+    var opacity = $("map-opacity"), light = $("map-light");
+    var leaflet = null, map = null, overlay = null, overlayUrl = null;
+    var source = null, bounds = null, drawn = null, visible = false;
+
+    // Only fetched the first time someone opens the map.
+    function loadLeaflet() {
+      if (leaflet) return leaflet;
+      leaflet = new Promise(function (resolve, reject) {
+        var css = document.createElement("link");
+        css.rel = "stylesheet";
+        css.href = LEAFLET + "leaflet.css";
+        css.integrity = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
+        css.crossOrigin = "anonymous";
+        document.head.appendChild(css);
+        var js = document.createElement("script");
+        js.src = LEAFLET + "leaflet.js";
+        js.integrity = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
+        js.crossOrigin = "anonymous";
+        js.onload = function () { resolve(window.L); };
+        js.onerror = function () {
+          leaflet = null;
+          js.remove();
+          reject(new Error("Couldn't load the map. Check your connection and try again."));
+        };
+        document.head.appendChild(js);
+      });
+      return leaflet;
+    }
+
+    // The heatmap is drawn on black. For the map, brightness becomes opacity
+    // so the streets show through the dark parts.
+    function transparent(url) {
+      return new Promise(function (resolve, reject) {
+        var img = new Image();
+        img.onload = function () {
+          var c = document.createElement("canvas");
+          c.width = img.naturalWidth;
+          c.height = img.naturalHeight;
+          var ctx = c.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+          var data = ctx.getImageData(0, 0, c.width, c.height);
+          var px = data.data;
+          for (var i = 0; i < px.length; i += 4) {
+            var a = Math.max(px[i], px[i + 1], px[i + 2]);
+            if (a) {
+              var k = 255 / a;
+              px[i] *= k;
+              px[i + 1] *= k;
+              px[i + 2] *= k;
+            }
+            px[i + 3] = a;
+          }
+          ctx.putImageData(data, 0, 0);
+          c.toBlob(function (b) {
+            if (b) resolve(URL.createObjectURL(b));
+            else reject(new Error("Couldn't prepare the heatmap for the map."));
+          }, "image/png");
+        };
+        img.onerror = function () { reject(new Error("Couldn't prepare the heatmap for the map.")); };
+        img.src = url;
+      });
+    }
+
+    function render() {
+      if (!source || !bounds || drawn === source) return;
+      var want = source;
+      drawn = want;
+      status.textContent = "Loading map…";
+      Promise.all([loadLeaflet(), transparent(want)]).then(function (r) {
+        var L = r[0];
+        if (source !== want) { URL.revokeObjectURL(r[1]); return; }  // a newer result arrived
+        if (!map) {
+          // Whole zoom levels only: fractional ones leave hairline seams between tiles.
+          map = L.map(box);
+          L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          }).addTo(map);
+        }
+        if (overlay) overlay.remove();
+        if (overlayUrl) URL.revokeObjectURL(overlayUrl);
+        overlayUrl = r[1];
+        var b = [[bounds[0], bounds[1]], [bounds[2], bounds[3]]];
+        overlay = L.imageOverlay(overlayUrl, b, { opacity: parseFloat(opacity.value) }).addTo(map);
+        map.invalidateSize();
+        map.fitBounds(b);
+        status.textContent = "Drag to move, scroll or pinch to zoom.";
+      }).catch(function (err) {
+        if (source === want) drawn = null;  // let the next click retry
+        status.textContent = err.message;
+      });
+    }
+
+    opacity.addEventListener("input", function () {
+      if (overlay) overlay.setOpacity(parseFloat(opacity.value));
+    });
+    light.addEventListener("change", function () {
+      box.classList.toggle("dark", !light.checked);
+    });
+
+    return {
+      set: function (src, b) {
+        source = src;
+        bounds = b;
+        if (visible) render();
+      },
+      show: function (on) {
+        visible = on;
+        if (!on) return;
+        if (map) map.invalidateSize();
+        render();
+      },
+    };
+  })();
+
+  function showTab(onMap) {
+    $("tab-image").setAttribute("aria-selected", String(!onMap));
+    $("tab-map").setAttribute("aria-selected", String(onMap));
+    els.viewer.hidden = onMap;
+    $("image-hint").hidden = onMap;
+    $("map-panel").hidden = !onMap;
+    mapView.show(onMap);
+    if (!onMap) viewer.fit();
+  }
+
+  $("tab-image").addEventListener("click", function () { showTab(false); });
+  $("tab-map").addEventListener("click", function () { showTab(true); });
 
   // ---- start -------------------------------------------------------------------
 

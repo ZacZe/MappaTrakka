@@ -297,7 +297,7 @@ h1 {
 .viewer.dragging { cursor: grabbing; }
 .viewer:focus-visible { outline: 2px solid var(--hotter); outline-offset: 2px; }
 
-.viewer img {
+.viewer > img {
   position: absolute;
   left: 0;
   top: 0;
@@ -307,6 +307,51 @@ h1 {
 }
 
 .hint { margin: 8px 0 18px; font-size: .85rem; color: var(--muted); }
+
+.view-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.view-tabs button {
+  padding: 6px 16px;
+  font: inherit;
+  font-size: .9rem;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.view-tabs button[aria-selected="true"] { color: #111; background: var(--hotter); font-weight: 600; }
+.view-tabs button:focus-visible { outline: 2px solid var(--hotter); outline-offset: 2px; }
+
+/* The map reuses the viewer box. Leaflet brings its own cursors. */
+.viewer.map { cursor: auto; background: #1b1b1f; }
+.viewer.map .leaflet-control-attribution { background: rgba(0, 0, 0, .6); color: #bbb; }
+.viewer.map .leaflet-control-attribution a { color: var(--hotter); }
+
+/* No keyless dark tiles around, so darken the normal OSM ones instead. */
+.viewer.map.dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
+
+.map-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+  margin: 10px 0 18px;
+  font-size: .9rem;
+}
+
+.map-controls label { display: inline-flex; align-items: center; gap: 8px; }
+.map-controls input[type="range"] { width: 140px; accent-color: var(--hot); }
+.map-controls input[type="checkbox"] { accent-color: var(--hot); }
 
 .stats {
   display: grid;

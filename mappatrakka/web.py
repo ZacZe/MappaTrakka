@@ -115,6 +115,9 @@ def generate(upload_dir: str, options: dict[str, Any], progress: ProgressFn | No
         "preview_height": small.height,
         "width": cfg.render.width,
         "height": cfg.render.height,
+        # (south, west, north, east) of the image edges, for laying it on a map.
+        # The image is Web Mercator, same as web map tiles, so the corners are enough.
+        "bounds": list(result.transform.bounds.to_latlon()),
         "stats": result.stats,
         "skipped": result.skipped,
         "log": handler.info,
