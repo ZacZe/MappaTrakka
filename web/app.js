@@ -291,7 +291,8 @@
     els.result.style.setProperty("--ar", meta.width + " / " + meta.height);
     viewer.load(state.previewUrl, state.resultUrl, meta.width, meta.height, meta.preview_width);
     // Very big images are too heavy to recolour for the map; the preview is plenty there.
-    mapView.set(meta.width * meta.height <= 16e6 ? state.resultUrl : state.previewUrl, meta.bounds);
+    mapView.set(meta.width * meta.height <= 16e6 ? state.resultUrl : state.previewUrl, meta.bounds,
+      meta.width, meta.height);
 
     var s = meta.stats || {};
     var first = s.first_activity ? s.first_activity.slice(0, 4) : null;
@@ -478,12 +479,15 @@
   // ---- map view ------------------------------------------------------------------
 
   var LEAFLET = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/";
+  var TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+  var ATTRIBUTION = "© OpenStreetMap contributors";
 
   var mapView = (function () {
-    var box = $("map"), status = $("map-status");
+    var box = $("map"), status = $("map-status"), save = $("map-save");
     var opacity = $("map-opacity"), light = $("map-light");
     var leaflet = null, map = null, overlay = null, overlayUrl = null;
     var source = null, bounds = null, drawn = null, visible = false;
+    var size = [0, 0], saving = false;
 
     // Only fetched the first time someone opens the map.
     function loadLeaflet() {
@@ -548,6 +552,7 @@
       if (!source || !bounds || drawn === source) return;
       var want = source;
       drawn = want;
+      save.disabled = true;
       status.textContent = "Loading map…";
       Promise.all([loadLeaflet(), transparent(want)]).then(function (r) {
         var L = r[0];
@@ -555,8 +560,10 @@
         if (!map) {
           // Whole zoom levels only: fractional ones leave hairline seams between tiles.
           map = L.map(box);
-          L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          L.tileLayer(TILE_URL, {
             maxZoom: 19,
+            // Same request mode as the download below, so it can reuse cached tiles.
+            crossOrigin: true,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
           }).addTo(map);
         }
@@ -567,12 +574,170 @@
         overlay = L.imageOverlay(overlayUrl, b, { opacity: parseFloat(opacity.value) }).addTo(map);
         map.invalidateSize();
         map.fitBounds(b);
+        save.disabled = saving;
         status.textContent = "Drag to move, scroll or pinch to zoom.";
       }).catch(function (err) {
         if (source === want) drawn = null;  // let the next click retry
         status.textContent = err.message;
       });
     }
+
+    // ---- saving the heatmap with the map underneath ----
+
+    // Web Mercator "world pixels" at a zoom level, the same grid tiles use.
+    function worldX(lon, z) { return (lon + 180) / 360 * 256 * Math.pow(2, z); }
+    function worldY(lat, z) {
+      var r = lat * Math.PI / 180;
+      return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * Math.pow(2, z);
+    }
+
+    // Pick the zoom where one tile pixel is about one output pixel, so labels
+    // come out a normal size, then back off until the tile count is polite.
+    var MAX_TILES = 300;
+    function tilePlan(outW) {
+      var spanAt0 = worldX(bounds[3], 0) - worldX(bounds[1], 0);
+      var z = Math.min(19, Math.max(0, Math.round(Math.log2(outW / spanAt0))));
+      for (; ; z--) {
+        var x0 = worldX(bounds[1], z), x1 = worldX(bounds[3], z);
+        var y0 = worldY(bounds[2], z), y1 = worldY(bounds[0], z);
+        var tx0 = Math.floor(x0 / 256), tx1 = Math.floor((x1 - 1e-6) / 256);
+        var ty0 = Math.floor(y0 / 256), ty1 = Math.floor((y1 - 1e-6) / 256);
+        if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= MAX_TILES || z === 0) {
+          return { z: z, x0: x0, x1: x1, y0: y0, y1: y1, tx0: tx0, tx1: tx1, ty0: ty0, ty1: ty1 };
+        }
+      }
+    }
+
+    function loadImage(src) {
+      return new Promise(function (resolve, reject) {
+        var img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = function () { resolve(img); };
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+
+    function fetchTiles(plan, onTile) {
+      var jobs = [];
+      for (var ty = plan.ty0; ty <= plan.ty1; ty++) {
+        for (var tx = plan.tx0; tx <= plan.tx1; tx++) jobs.push([tx, ty]);
+      }
+      var n = Math.pow(2, plan.z), done = 0, failed = 0, next = 0;
+      function worker() {
+        if (next >= jobs.length) return Promise.resolve();
+        var job = jobs[next++];
+        var x = ((job[0] % n) + n) % n;  // wrap across the antimeridian
+        var url = TILE_URL.replace("{z}", plan.z).replace("{x}", x).replace("{y}", job[1]);
+        return loadImage(url).then(function (img) {
+          onTile(img, job[0], job[1]);
+        }, function () { failed++; }).then(function () {
+          done++;
+          status.textContent = "Fetching map tiles: " + done + " of " + jobs.length;
+          return worker();
+        });
+      }
+      // A handful at a time, like a browser would.
+      var pool = [];
+      for (var i = 0; i < 6; i++) pool.push(worker());
+      return Promise.all(pool).then(function () { return { total: jobs.length, failed: failed }; });
+    }
+
+    // Same look as the CSS filter on the live dark map:
+    // invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6).
+    // Done by hand because not every browser supports canvas filters.
+    function darken(ctx, w, h) {
+      var data = ctx.getImageData(0, 0, w, h), px = data.data;
+      var s = 0.6;
+      var s00 = 0.213 + 0.787 * s, s01 = 0.715 - 0.715 * s, s02 = 0.072 - 0.072 * s;
+      var s10 = 0.213 - 0.213 * s, s11 = 0.715 + 0.285 * s, s12 = 0.072 - 0.072 * s;
+      var s20 = 0.213 - 0.213 * s, s21 = 0.715 - 0.715 * s, s22 = 0.072 + 0.928 * s;
+      function c01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+      for (var i = 0; i < px.length; i += 4) {
+        var r = 1 - px[i] / 255, g = 1 - px[i + 1] / 255, b = 1 - px[i + 2] / 255;
+        // hue-rotate(180deg)
+        var r2 = c01(-0.574 * r + 1.43 * g + 0.144 * b);
+        var g2 = c01(0.426 * r + 0.43 * g + 0.144 * b);
+        var b2 = c01(0.426 * r + 1.43 * g - 0.856 * b);
+        // brightness, then contrast
+        r2 = c01((r2 * 0.85 - 0.5) * 0.9 + 0.5);
+        g2 = c01((g2 * 0.85 - 0.5) * 0.9 + 0.5);
+        b2 = c01((b2 * 0.85 - 0.5) * 0.9 + 0.5);
+        px[i] = 255 * c01(s00 * r2 + s01 * g2 + s02 * b2);
+        px[i + 1] = 255 * c01(s10 * r2 + s11 * g2 + s12 * b2);
+        px[i + 2] = 255 * c01(s20 * r2 + s21 * g2 + s22 * b2);
+      }
+      ctx.putImageData(data, 0, 0);
+    }
+
+    function stamp(ctx, w, h) {
+      var fs = Math.max(11, Math.round(w / 140));
+      ctx.font = fs + "px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif";
+      var pad = Math.round(fs * 0.5), tw = ctx.measureText(ATTRIBUTION).width;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.fillRect(w - tw - pad * 2, h - fs - pad * 2, tw + pad * 2, fs + pad * 2);
+      ctx.fillStyle = "#ddd";
+      ctx.textBaseline = "top";
+      ctx.fillText(ATTRIBUTION, w - tw - pad, h - fs - pad * 1.4);
+    }
+
+    function download() {
+      if (saving || !overlayUrl) return;
+      saving = true;
+      save.disabled = true;
+      var heat = overlayUrl, dark = !light.checked, alpha = parseFloat(opacity.value);
+      // Same shape as the heatmap; 4000 px is plenty for a map picture.
+      var k = Math.min(1, 4000 / Math.max(size[0], size[1]));
+      var W = Math.round(size[0] * k), H = Math.round(size[1] * k);
+      var plan = tilePlan(W);
+      var mosaic = document.createElement("canvas");
+      mosaic.width = (plan.tx1 - plan.tx0 + 1) * 256;
+      mosaic.height = (plan.ty1 - plan.ty0 + 1) * 256;
+      var mctx = mosaic.getContext("2d");
+      mctx.fillStyle = dark ? "#1b1b1f" : "#f2efe9";
+      mctx.fillRect(0, 0, mosaic.width, mosaic.height);
+
+      fetchTiles(plan, function (img, tx, ty) {
+        mctx.drawImage(img, (tx - plan.tx0) * 256, (ty - plan.ty0) * 256);
+      }).then(function (res) {
+        if (res.failed > res.total / 2) throw new Error("Couldn't fetch the map tiles. Check your connection and try again.");
+        status.textContent = "Putting it together…";
+        if (dark) darken(mctx, mosaic.width, mosaic.height);
+        return loadImage(heat).then(function (heatImg) {
+          var out = document.createElement("canvas");
+          out.width = W;
+          out.height = H;
+          var ctx = out.getContext("2d");
+          ctx.imageSmoothingQuality = "high";
+          var sc = W / (plan.x1 - plan.x0);
+          ctx.drawImage(mosaic, (plan.tx0 * 256 - plan.x0) * sc, (plan.ty0 * 256 - plan.y0) * sc,
+            mosaic.width * sc, mosaic.height * sc);
+          ctx.globalAlpha = alpha;
+          ctx.drawImage(heatImg, 0, 0, W, H);
+          ctx.globalAlpha = 1;
+          stamp(ctx, W, H);
+          return new Promise(function (resolve, reject) {
+            out.toBlob(function (b) { b ? resolve(b) : reject(new Error("Couldn't save the image.")); }, "image/jpeg", 0.92);
+          });
+        });
+      }).then(function (blob) {
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "heatmap-map.jpg";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+        status.textContent = "Saved heatmap-map.jpg (" + formatBytes(blob.size) + ").";
+      }).catch(function (err) {
+        status.textContent = err.message || "Couldn't save the image.";
+      }).then(function () {
+        saving = false;
+        save.disabled = !overlay || drawn !== source;
+      });
+    }
+
+    save.addEventListener("click", download);
 
     opacity.addEventListener("input", function () {
       if (overlay) overlay.setOpacity(parseFloat(opacity.value));
@@ -582,9 +747,11 @@
     });
 
     return {
-      set: function (src, b) {
+      set: function (src, b, w, h) {
         source = src;
         bounds = b;
+        size = [w, h];
+        save.disabled = true;
         if (visible) render();
       },
       show: function (on) {

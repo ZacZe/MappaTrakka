@@ -87,6 +87,11 @@ same projection as the map tiles, so it lines up with just its corner
 coordinates. Leaflet and the tiles are only fetched when that tab is opened, and
 tile requests do tell OpenStreetMap roughly which area is being viewed.
 
+"Download with map" saves that view as a single JPEG, up to 4000 px. It
+stitches the tiles together at a zoom where the labels come out a normal size
+(capped at 300 tiles), darkens them the same way the live map does, then adds
+the heatmap and the OpenStreetMap credit, which the map licence requires.
+
 No data handy? `python -m mappatrakka.demo` writes a fake export (a made-up
 town, some holidays, virtual rides and a few broken files) to try things on,
 and the website has a "Try with demo data" button.
